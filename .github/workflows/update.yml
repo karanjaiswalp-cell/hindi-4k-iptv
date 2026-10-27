@@ -1,4 +1,4 @@
-name: Update IPTV Playlist
+name: Update IPTV Playlists
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    timeout-minutes: 30
+    timeout-minutes: 10
 
     steps:
 
@@ -27,19 +27,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install FFmpeg
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Run Scanner
+      - name: Run Filter
         run: |
-          python filter.py
+          python -u filter.py
 
       - name: Show Statistics
         run: |
@@ -52,6 +47,7 @@ jobs:
 
           git add Hindi-HD.m3u
           git add Hindi-FullHD.m3u
+          git add Hindi-4K.m3u
           git add report.txt
           git add stats.json
 
