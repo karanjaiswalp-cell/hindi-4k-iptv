@@ -1,6 +1,7 @@
 {
   "channels_checked": 839,
-  "hd_channels": 490,
-  "fullhd_channels": 278,
-  "uhd_channels": 1
+  "alive_channels": 715,
+  "hd_channels": 426,
+  "fullhd_channels": 234,
+  "uhd_channels": 0
 }
