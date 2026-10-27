@@ -1,6 +1,6 @@
 {
-  "candidates_found": 3,
-  "checked": 3,
-  "passed": 0,
-  "failed": 3
+  "channels_checked": 839,
+  "hd_channels": 490,
+  "fullhd_channels": 278,
+  "uhd_channels": 1
 }
