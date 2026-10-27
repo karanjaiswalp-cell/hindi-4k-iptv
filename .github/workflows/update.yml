@@ -15,7 +15,7 @@ jobs:
 
     runs-on: ubuntu-latest
 
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
 
@@ -36,7 +36,7 @@ jobs:
         run: |
           python -u filter.py
 
-      - name: Show Statistics
+      - name: Show Stats
         run: |
           cat stats.json
 
@@ -45,11 +45,11 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
-          git add Hindi-HD.m3u
-          git add Hindi-FullHD.m3u
-          git add Hindi-4K.m3u
+          git add Hindi-HD-Tested.m3u
+          git add Hindi-FullHD-Tested.m3u
+          git add Hindi-4K-Tested.m3u
           git add report.txt
           git add stats.json
 
-          git commit -m "Update IPTV playlists" || exit 0
+          git commit -m "Update tested playlists" || exit 0
           git push
