@@ -1,4 +1,4 @@
-name: Update Hindi 4K Playlist
+name: Update IPTV Playlist
 
 on:
   workflow_dispatch:
@@ -41,20 +41,19 @@ jobs:
         run: |
           python filter.py
 
-      - name: Display Statistics
+      - name: Show Statistics
         run: |
-          echo "===== stats ====="
-          cat stats.json || true
+          cat stats.json
 
       - name: Commit Results
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
 
-          git add Hindi-True-4K.m3u
-          git add stats.json
+          git add Hindi-HD.m3u
+          git add Hindi-FullHD.m3u
           git add report.txt
-          git add candidates.txt
+          git add stats.json
 
-          git commit -m "Update IPTV playlist" || exit 0
+          git commit -m "Update IPTV playlists" || exit 0
           git push
