@@ -1,9 +1,13 @@
 import requests
 import subprocess
 import json
+import re
 from urllib.parse import urljoin
 
-SOURCE = "https://iptv-org.github.io/iptv/languages/hin.m3u"
+SOURCES = [
+    "https://iptv-org.github.io/iptv/languages/hin.m3u",
+    "https://iptv-org.github.io/iptv/countries/in.m3u"
+]
 
 OUTPUT_PLAYLIST = "Hindi-True-4K.m3u"
 REPORT_FILE = "report.txt"
@@ -18,17 +22,38 @@ KEYWORDS = [
     "4k",
     "uhd",
     "2160",
-    "ultra hd"
+    "ultra hd",
+    "hdr"
 ]
 
 
+def download_sources():
+    merged = []
+
+    for source in SOURCES:
+        print(f"Downloading: {source}")
+
+        try:
+            lines = requests.get(
+                source,
+                timeout=15,
+                headers={
+                    "User-Agent": "Mozilla/5.0"
+                }
+            ).text.splitlines()
+
+            merged.extend(lines)
+
+        except Exception as e:
+            print(f"Source failed: {e}")
+
+    return merged
+
+
 def get_best_hls_variant(url):
-    """
-    If URL is a HLS master playlist, return
-    the highest-bandwidth variant stream.
-    """
 
     try:
+
         response = requests.get(
             url,
             timeout=5,
@@ -44,10 +69,10 @@ def get_best_hls_variant(url):
 
         lines = text.splitlines()
 
-        best_bandwidth = 0
         best_url = url
+        best_bw = 0
 
-        for idx, line in enumerate(lines):
+        for i, line in enumerate(lines):
 
             if (
                 "#EXT-X-STREAM-INF" in line
@@ -57,43 +82,77 @@ def get_best_hls_variant(url):
                 try:
 
                     bw = int(
-                        line.split("BANDWIDTH=")[1]
-                        .split(",")[0]
+                        line.split(
+                            "BANDWIDTH="
+                        )[1].split(",")[0]
                     )
 
-                    variant_url = lines[idx + 1].strip()
+                    variant = lines[i + 1].strip()
 
-                    if bw > best_bandwidth:
+                    if bw > best_bw:
 
-                        best_bandwidth = bw
+                        best_bw = bw
 
                         best_url = urljoin(
                             url,
-                            variant_url
+                            variant
                         )
 
-                except Exception:
+                except:
                     pass
 
         return best_url
 
-    except Exception:
+    except:
         return url
 
 
-print("===================================")
-print("Downloading Hindi playlist...")
-print("===================================")
+def extract_resolution_from_hls(url):
 
-playlist = requests.get(
-    SOURCE,
-    timeout=20,
-    headers={
-        "User-Agent": "Mozilla/5.0"
-    }
-).text.splitlines()
+    try:
 
-print(f"Playlist lines: {len(playlist)}")
+        response = requests.get(
+            url,
+            timeout=5,
+            headers={
+                "User-Agent": "Mozilla/5.0"
+            }
+        )
+
+        text = response.text
+
+        matches = re.findall(
+            r'RESOLUTION=(\d+)x(\d+)',
+            text
+        )
+
+        if not matches:
+            return None
+
+        best = max(
+            matches,
+            key=lambda x: (
+                int(x[0]),
+                int(x[1])
+            )
+        )
+
+        return (
+            int(best[0]),
+            int(best[1])
+        )
+
+    except:
+        return None
+
+
+print("Downloading playlists...")
+
+playlist = download_sources()
+
+print(
+    f"Loaded {len(playlist)} lines"
+)
 
 output = ["#EXTM3U"]
 
@@ -104,6 +163,8 @@ checked = 0
 passed = 0
 failed = 0
 candidate_count = 0
+
+seen_urls = set()
 
 i = 0
 
@@ -117,8 +178,16 @@ while i < len(playlist):
         extinf = playlist[i]
         url = playlist[i + 1]
 
+        if url in seen_urls:
+            i += 2
+            continue
+
+        seen_urls.add(url)
+
+        metadata = extinf.lower()
+
         if not any(
-            keyword in extinf.lower()
+            keyword in metadata
             for keyword in KEYWORDS
         ):
             i += 2
@@ -127,21 +196,22 @@ while i < len(playlist):
         candidate_count += 1
 
         candidates.append(
-            f"{extinf}\n{url}\n"
+            f"{extinf}\n{url}"
         )
 
-        probe_url = get_best_hls_variant(url)
+        probe_url = get_best_hls_variant(
+            url
+        )
 
         checked += 1
 
         print(
-            f"[{checked}] Checking:"
+            f"[{checked}] {probe_url}"
         )
-        print(probe_url)
 
         try:
 
-            result = subprocess.run(
+            ffprobe = subprocess.run(
                 [
                     "ffprobe",
                     "-v",
@@ -156,139 +226,144 @@ while i < len(playlist):
                 timeout=3
             )
 
-            if result.returncode != 0:
+            if ffprobe.returncode == 0:
 
-                failed += 1
+                try:
 
-                report.append(
-                    f"{extinf}\n"
-                    f"STATUS: ffprobe failed\n"
-                    f"{probe_url}\n"
-                )
-
-                i += 2
-                continue
-
-            try:
-                data = json.loads(
-                    result.stdout
-                )
-            except Exception:
-
-                failed += 1
-
-                report.append(
-                    f"{extinf}\n"
-                    f"STATUS: invalid ffprobe output\n"
-                    f"{probe_url}\n"
-                )
-
-                i += 2
-                continue
-
-            video_stream = next(
-                (
-                    s
-                    for s in data.get(
-                        "streams",
-                        []
+                    data = json.loads(
+                        ffprobe.stdout
                     )
-                    if s.get(
-                        "codec_type"
-                    ) == "video"
-                ),
-                None
+
+                    video_stream = next(
+                        (
+                            s
+                            for s in data.get(
+                                "streams",
+                                []
+                            )
+                            if s.get(
+                                "codec_type"
+                            ) == "video"
+                        ),
+                        None
+                    )
+
+                    if video_stream:
+
+                        width = int(
+                            video_stream.get(
+                                "width",
+                                0
+                            )
+                        )
+
+                        height = int(
+                            video_stream.get(
+                                "height",
+                                0
+                            )
+                        )
+
+                        bitrate = int(
+                            video_stream.get(
+                                "bit_rate",
+                                0
+                            ) or 0
+                        )
+
+                        pass_resolution = (
+                            width >= MIN_WIDTH
+                            and height >= MIN_HEIGHT
+                        )
+
+                        pass_bitrate = (
+                            bitrate == 0
+                            or bitrate >= MIN_BITRATE
+                        )
+
+                        report.append(
+                            f"{extinf}\n"
+                            f"Width={width}\n"
+                            f"Height={height}\n"
+                            f"Bitrate={bitrate}\n"
+                            f"ResolutionPass={pass_resolution}\n"
+                            f"BitratePass={pass_bitrate}\n"
+                            f"{probe_url}"
+                        )
+
+                        if (
+                            pass_resolution
+                            and pass_bitrate
+                        ):
+
+                            output.extend(
+                                [
+                                    extinf,
+                                    probe_url
+                                ]
+                            )
+
+                            passed += 1
+
+                            i += 2
+                            continue
+
+                except Exception:
+                    pass
+
+            resolution = (
+                extract_resolution_from_hls(
+                    probe_url
+                )
             )
 
-            if not video_stream:
+            if resolution:
 
-                failed += 1
+                width, height = resolution
 
                 report.append(
                     f"{extinf}\n"
-                    f"STATUS: no video stream\n"
-                    f"{probe_url}\n"
+                    f"HLS Resolution="
+                    f"{width}x{height}\n"
+                    f"{probe_url}"
                 )
 
-                i += 2
-                continue
+                if (
+                    width >= MIN_WIDTH
+                    and height >= MIN_HEIGHT
+                ):
 
-            width = int(
-                video_stream.get(
-                    "width",
-                    0
-                )
-            )
+                    output.extend(
+                        [
+                            extinf,
+                            probe_url
+                        ]
+                    )
 
-            height = int(
-                video_stream.get(
-                    "height",
-                    0
-                )
-            )
+                    passed += 1
 
-            bitrate = int(
-                video_stream.get(
-                    "bit_rate",
-                    0
-                ) or 0
-            )
-
-            passes_resolution = (
-                width >= MIN_WIDTH
-                and height >= MIN_HEIGHT
-            )
-
-            # Many IPTV providers don't expose bitrate.
-            passes_bitrate = (
-                bitrate == 0
-                or bitrate >= MIN_BITRATE
-            )
-
-            report.append(
-                f"{extinf}\n"
-                f"Resolution: "
-                f"{width}x{height}\n"
-                f"Bitrate: {bitrate}\n"
-                f"Pass Resolution: "
-                f"{passes_resolution}\n"
-                f"Pass Bitrate: "
-                f"{passes_bitrate}\n"
-                f"{probe_url}\n"
-            )
-
-            if (
-                passes_resolution
-                and passes_bitrate
-            ):
-
-                passed += 1
-
-                output.extend(
-                    [
-                        extinf,
-                        probe_url
-                    ]
-                )
-
-                print(
-                    f"PASS: "
-                    f"{width}x{height}"
-                )
+                else:
+                    failed += 1
 
             else:
+
+                report.append(
+                    f"{extinf}\n"
+                    f"STATUS=NoResolutionFound\n"
+                    f"{probe_url}"
+                )
 
                 failed += 1
 
         except Exception as e:
 
-            failed += 1
-
             report.append(
                 f"{extinf}\n"
-                f"ERROR: {str(e)}\n"
-                f"{probe_url}\n"
+                f"ERROR={str(e)}\n"
+                f"{probe_url}"
             )
+
+            failed += 1
 
         i += 2
 
@@ -343,15 +418,8 @@ with open(
         indent=2
     )
 
-print()
-print("===================================")
-print("SUMMARY")
-print("===================================")
-print(f"Candidates : {candidate_count}")
-print(f"Checked    : {checked}")
-print(f"Passed     : {passed}")
-print(f"Failed     : {failed}")
-print(
-    f"Playlist entries: "
-    f"{(len(output)-1)//2}"
-)
+print("========== SUMMARY ==========")
+print(f"Candidates: {candidate_count}")
+print(f"Checked: {checked}")
+print(f"Passed: {passed}")
+print(f"Failed: {failed}")
