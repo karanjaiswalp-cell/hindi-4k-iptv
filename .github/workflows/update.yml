@@ -1,21 +1,28 @@
 name: Update Hindi 4K Playlist
 
 on:
+  workflow_dispatch:
+
   schedule:
     - cron: "0 3 * * *"
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  update:
+  build:
+
     runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+    timeout-minutes: 30
 
-      - uses: actions/setup-python@v5
+    steps:
+
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -24,19 +31,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Python dependencies
+      - name: Install Python Packages
         run: |
-          pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install requests
 
-      - name: Generate playlist
+      - name: Run Filter
         run: |
           python filter.py
 
-      - name: Commit updates
+      - name: Show Stats
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          echo "===== STATS ====="
+          cat stats.json || true
+
+      - name: Commit Results
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
 
           git add Hindi-True-4K.m3u
-          git commit -m "Auto-update Hindi 4K playlist" || exit 0
+          git add report.txt
+          git add stats.json
+          git add candidates.txt
+
+          git commit -m "Update Hindi 4K playlist" || exit 0
           git push
