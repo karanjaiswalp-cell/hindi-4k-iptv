@@ -9,43 +9,45 @@ SOURCES = [
     "https://iptv-org.github.io/iptv/countries/in.m3u"
 ]
 
-OUTPUT_PLAYLIST = "Hindi-True-4K.m3u"
+HD_PLAYLIST = "Hindi-HD.m3u"
+FULLHD_PLAYLIST = "Hindi-FullHD.m3u"
+
 REPORT_FILE = "report.txt"
 STATS_FILE = "stats.json"
-CANDIDATES_FILE = "candidates.txt"
 
-MIN_WIDTH = 3840
-MIN_HEIGHT = 2160
-MIN_BITRATE = 15000000
+MIN_HD_WIDTH = 1280
+MIN_HD_HEIGHT = 720
 
-KEYWORDS = [
-    "4k",
-    "uhd",
-    "2160",
-    "ultra hd",
-    "hdr"
-]
+MIN_FULLHD_WIDTH = 1920
+MIN_FULLHD_HEIGHT = 1080
 
 
 def download_sources():
     merged = []
 
     for source in SOURCES:
+
         print(f"Downloading: {source}")
 
         try:
-            lines = requests.get(
+
+            data = requests.get(
                 source,
                 timeout=15,
                 headers={
                     "User-Agent": "Mozilla/5.0"
                 }
-            ).text.splitlines()
+            )
 
-            merged.extend(lines)
+            merged.extend(
+                data.text.splitlines()
+            )
 
         except Exception as e:
-            print(f"Source failed: {e}")
+
+            print(
+                f"Download failed: {e}"
+            )
 
     return merged
 
@@ -87,7 +89,9 @@ def get_best_hls_variant(url):
                         )[1].split(",")[0]
                     )
 
-                    variant = lines[i + 1].strip()
+                    variant = lines[
+                        i + 1
+                    ].strip()
 
                     if bw > best_bw:
 
@@ -119,11 +123,9 @@ def extract_resolution_from_hls(url):
             }
         )
 
-        text = response.text
-
         matches = re.findall(
             r'RESOLUTION=(\d+)x(\d+)',
-            text
+            response.text
         )
 
         if not matches:
@@ -146,25 +148,23 @@ def extract_resolution_from_hls(url):
         return None
 
 
-print("Downloading playlists...")
-
 playlist = download_sources()
 
 print(
     f"Loaded {len(playlist)} lines"
 )
 
-output = ["#EXTM3U"]
+hd_playlist = ["#EXTM3U"]
+fullhd_playlist = ["#EXTM3U"]
 
 report = []
-candidates = []
 
 checked = 0
-passed = 0
-failed = 0
-candidate_count = 0
+hd_count = 0
+fullhd_count = 0
+failed_count = 0
 
-seen_urls = set()
+seen = set()
 
 i = 0
 
@@ -178,40 +178,29 @@ while i < len(playlist):
         extinf = playlist[i]
         url = playlist[i + 1]
 
-        if url in seen_urls:
+        if url in seen:
             i += 2
             continue
 
-        seen_urls.add(url)
+        seen.add(url)
 
-        metadata = extinf.lower()
+        checked += 1
 
-        if not any(
-            keyword in metadata
-            for keyword in KEYWORDS
-        ):
-            i += 2
-            continue
-
-        candidate_count += 1
-
-        candidates.append(
-            f"{extinf}\n{url}"
+        print(
+            f"[{checked}] Checking..."
         )
 
         probe_url = get_best_hls_variant(
             url
         )
 
-        checked += 1
-
-        print(
-            f"[{checked}] {probe_url}"
-        )
+        width = 0
+        height = 0
+        bitrate = 0
 
         try:
 
-            ffprobe = subprocess.run(
+            result = subprocess.run(
                 [
                     "ffprobe",
                     "-v",
@@ -226,144 +215,124 @@ while i < len(playlist):
                 timeout=3
             )
 
-            if ffprobe.returncode == 0:
+            if result.returncode == 0:
 
-                try:
+                data = json.loads(
+                    result.stdout
+                )
 
-                    data = json.loads(
-                        ffprobe.stdout
+                video_stream = next(
+                    (
+                        s
+                        for s in data.get(
+                            "streams",
+                            []
+                        )
+                        if s.get(
+                            "codec_type"
+                        ) == "video"
+                    ),
+                    None
+                )
+
+                if video_stream:
+
+                    width = int(
+                        video_stream.get(
+                            "width",
+                            0
+                        )
                     )
 
-                    video_stream = next(
-                        (
-                            s
-                            for s in data.get(
-                                "streams",
-                                []
-                            )
-                            if s.get(
-                                "codec_type"
-                            ) == "video"
-                        ),
-                        None
+                    height = int(
+                        video_stream.get(
+                            "height",
+                            0
+                        )
                     )
 
-                    if video_stream:
+                    bitrate = int(
+                        video_stream.get(
+                            "bit_rate",
+                            0
+                        ) or 0
+                    )
 
-                        width = int(
-                            video_stream.get(
-                                "width",
-                                0
-                            )
-                        )
+            if width == 0:
 
-                        height = int(
-                            video_stream.get(
-                                "height",
-                                0
-                            )
-                        )
+                resolution = (
+                    extract_resolution_from_hls(
+                        probe_url
+                    )
+                )
 
-                        bitrate = int(
-                            video_stream.get(
-                                "bit_rate",
-                                0
-                            ) or 0
-                        )
+                if resolution:
 
-                        pass_resolution = (
-                            width >= MIN_WIDTH
-                            and height >= MIN_HEIGHT
-                        )
+                    width, height = (
+                        resolution
+                    )
 
-                        pass_bitrate = (
-                            bitrate == 0
-                            or bitrate >= MIN_BITRATE
-                        )
+        except:
+            pass
 
-                        report.append(
-                            f"{extinf}\n"
-                            f"Width={width}\n"
-                            f"Height={height}\n"
-                            f"Bitrate={bitrate}\n"
-                            f"ResolutionPass={pass_resolution}\n"
-                            f"BitratePass={pass_bitrate}\n"
-                            f"{probe_url}"
-                        )
+        quality = "UNKNOWN"
 
-                        if (
-                            pass_resolution
-                            and pass_bitrate
-                        ):
+        if (
+            width >= 1920
+            and height >= 1080
+        ):
+            quality = "1080p"
 
-                            output.extend(
-                                [
-                                    extinf,
-                                    probe_url
-                                ]
-                            )
+        elif (
+            width >= 1280
+            and height >= 720
+        ):
+            quality = "720p"
 
-                            passed += 1
+        elif (
+            width >= 854
+            and height >= 480
+        ):
+            quality = "480p"
 
-                            i += 2
-                            continue
+        if (
+            width >= MIN_HD_WIDTH
+            and height >= MIN_HD_HEIGHT
+        ):
 
-                except Exception:
-                    pass
-
-            resolution = (
-                extract_resolution_from_hls(
+            hd_playlist.extend(
+                [
+                    extinf,
                     probe_url
-                )
+                ]
             )
 
-            if resolution:
+            hd_count += 1
 
-                width, height = resolution
+        if (
+            width >= MIN_FULLHD_WIDTH
+            and height >= MIN_FULLHD_HEIGHT
+        ):
 
-                report.append(
-                    f"{extinf}\n"
-                    f"HLS Resolution="
-                    f"{width}x{height}\n"
-                    f"{probe_url}"
-                )
-
-                if (
-                    width >= MIN_WIDTH
-                    and height >= MIN_HEIGHT
-                ):
-
-                    output.extend(
-                        [
-                            extinf,
-                            probe_url
-                        ]
-                    )
-
-                    passed += 1
-
-                else:
-                    failed += 1
-
-            else:
-
-                report.append(
-                    f"{extinf}\n"
-                    f"STATUS=NoResolutionFound\n"
-                    f"{probe_url}"
-                )
-
-                failed += 1
-
-        except Exception as e:
-
-            report.append(
-                f"{extinf}\n"
-                f"ERROR={str(e)}\n"
-                f"{probe_url}"
+            fullhd_playlist.extend(
+                [
+                    extinf,
+                    probe_url
+                ]
             )
 
-            failed += 1
+            fullhd_count += 1
+
+        if width == 0:
+            failed_count += 1
+
+        report.append(
+            f"{extinf}\n"
+            f"Quality={quality}\n"
+            f"Resolution={width}x{height}\n"
+            f"Bitrate={bitrate}\n"
+            f"{probe_url}"
+        )
 
         i += 2
 
@@ -372,13 +341,21 @@ while i < len(playlist):
 
 
 with open(
-    OUTPUT_PLAYLIST,
+    HD_PLAYLIST,
     "w",
     encoding="utf-8"
 ) as f:
-
     f.write(
-        "\n".join(output)
+        "\n".join(hd_playlist)
+    )
+
+with open(
+    FULLHD_PLAYLIST,
+    "w",
+    encoding="utf-8"
+) as f:
+    f.write(
+        "\n".join(fullhd_playlist)
     )
 
 with open(
@@ -386,19 +363,8 @@ with open(
     "w",
     encoding="utf-8"
 ) as f:
-
     f.write(
         "\n\n".join(report)
-    )
-
-with open(
-    CANDIDATES_FILE,
-    "w",
-    encoding="utf-8"
-) as f:
-
-    f.write(
-        "\n\n".join(candidates)
     )
 
 with open(
@@ -409,17 +375,17 @@ with open(
 
     json.dump(
         {
-            "candidates_found": candidate_count,
-            "checked": checked,
-            "passed": passed,
-            "failed": failed
+            "channels_checked": checked,
+            "hd_channels": hd_count,
+            "fullhd_channels": fullhd_count,
+            "failed": failed_count
         },
         f,
         indent=2
     )
 
 print("========== SUMMARY ==========")
-print(f"Candidates: {candidate_count}")
-print(f"Checked: {checked}")
-print(f"Passed: {passed}")
-print(f"Failed: {failed}")
+print(f"Checked      : {checked}")
+print(f"HD           : {hd_count}")
+print(f"Full HD      : {fullhd_count}")
+print(f"Failed       : {failed_count}")
