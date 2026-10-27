@@ -10,6 +10,7 @@ permissions:
   contents: write
 
 jobs:
+
   build:
 
     runs-on: ubuntu-latest
@@ -18,7 +19,7 @@ jobs:
 
     steps:
 
-      - name: Checkout Repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -31,18 +32,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Install Python Packages
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Run Filter
+      - name: Run Scanner
         run: |
           python filter.py
 
-      - name: Show Stats
+      - name: Display Statistics
         run: |
-          echo "===== STATS ====="
+          echo "===== stats ====="
           cat stats.json || true
 
       - name: Commit Results
@@ -51,9 +52,9 @@ jobs:
           git config --global user.email "github-actions@github.com"
 
           git add Hindi-True-4K.m3u
-          git add report.txt
           git add stats.json
+          git add report.txt
           git add candidates.txt
 
-          git commit -m "Update Hindi 4K playlist" || exit 0
+          git commit -m "Update IPTV playlist" || exit 0
           git push
